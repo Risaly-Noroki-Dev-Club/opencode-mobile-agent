@@ -43,7 +43,7 @@ export async function proxyOpenCodeRequest(c: Context, opts: { baseUrl: string; 
   })
 }
 
-function joinPath(basePath: string, forwardedPath: string) {
+export function joinPath(basePath: string, forwardedPath: string) {
   const base = basePath === "/" ? "" : basePath.replace(/\/$/, "")
   const forwarded = forwardedPath.startsWith("/") ? forwardedPath : `/${forwardedPath}`
   return `${base}${forwarded}` || "/"

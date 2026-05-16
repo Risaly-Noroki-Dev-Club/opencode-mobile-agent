@@ -25,7 +25,9 @@ The default agent config uses:
   "host": "127.0.0.1",
   "port": 2250,
   "opencodeUrl": "http://127.0.0.1:4096",
-  "opencodeForwardPrefix": "/opencode"
+  "opencodeForwardPrefix": "/opencode",
+  "workspaces": ["/home/user/projects"],
+  "projectSource": "intersect"
 }
 ```
 
@@ -48,18 +50,27 @@ GET /opencode/event         -> GET http://127.0.0.1:4096/event
 
 The agent strips the mobile `Authorization` header before forwarding so the token is not leaked to OpenCode.
 
+## Agent-Native Paths
+
+The Android app also calls agent-native endpoints with the same bearer token:
+
+```text
+GET /projects
+GET /sessions?projectId=<id>
+GET /sessions?directory=<path>
+GET /workspaces
+```
+
+`/health` is intentionally unauthenticated so clients and operators can check whether the agent and upstream OpenCode are reachable.
+
 ## Mobile WebSocket
 
-The Android app connects to:
+`/ws` is currently experimental scaffolding. It only supports `auth` and `workspace.list`, and the Android app does not use it for the current MVP path.
+
+If testing it directly, connect to:
 
 ```text
 wss://your-server.example.com:2250/ws
-```
-
-or, without TLS during private testing:
-
-```text
-ws://your-server.example.com:2250/ws
 ```
 
 The first WebSocket message must be:

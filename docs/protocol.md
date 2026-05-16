@@ -122,10 +122,64 @@ Inspired by `slopus/happy`, protocol schemas live in a dedicated package so the 
 
 ## HTTP Endpoints
 
-The agent can expose simple HTTP endpoints for non-streaming reads.
+HTTP is the working transport. All endpoints below require `Authorization: Bearer <token>` except `/health`.
 
-```text
-GET /health
-GET /workspaces
-GET /sessions/:id/diff
+### `GET /health`
+
+Diagnostic snapshot. Unauthenticated. Returns agent build info, OpenCode upstream status, and project source summary.
+
+```json
+{
+  "healthy": true,
+  "agent": { "version": "0.0.0", "host": "127.0.0.1", "port": 2250, "forwardPrefix": "/opencode" },
+  "opencode": { "url": "http://127.0.0.1:4096", "healthy": true, "version": "1.14.46" },
+  "projects": { "source": "intersect", "count": 3 },
+  "upstream": { "healthy": true, "version": "1.14.46" }
+}
 ```
+
+`upstream` duplicates the OpenCode status under a stable name kept for older clients.
+
+### `GET /projects`
+
+Returns the project list according to the agent's `projectSource` setting, sorted by recency (`lastActive` descending). `lastActive` is OpenCode's `time.updated` when available, otherwise falls back to `time.initialized` or `time.created`.
+
+```json
+{
+  "items": [
+    {
+      "id": "847fe2b5cf33abb38609fea1e19e11c3260682a7",
+      "name": "rakurakumusicstation-ng",
+      "worktree": "/home/erika/rakurakumusicstation-ng",
+      "vcs": "git",
+      "lastActive": 1778910525404
+    }
+  ]
+}
+```
+
+### `GET /sessions?projectId=<id>&directory=<path>`
+
+Returns sessions for a project. At least one of `projectId` or `directory` is recommended; without either, the full session list visible under the configured workspace prefixes is returned. Sorted by `lastActive` descending. Sessions outside the workspace allowlist are filtered out unless `projectSource` is `opencode`.
+
+```json
+{
+  "items": [
+    {
+      "id": "ses_1d0ab3712ffeUlO8atWhIw2Y9L",
+      "projectId": "847fe2b5cf33abb38609fea1e19e11c3260682a7",
+      "directory": "/home/erika/rakurakumusicstation-ng",
+      "title": "重置项目计划",
+      "lastActive": 1778910579157
+    }
+  ]
+}
+```
+
+### `GET /workspaces`
+
+Legacy endpoint that returns the raw `workspaces` config entries wrapped as `{ id, name, path }`. Kept for backward compatibility with the existing Android client. Prefer `/projects` for new clients.
+
+### `GET /opencode/*`
+
+Transparent forward to the local OpenCode server. The agent strips its own `Authorization` header before forwarding.

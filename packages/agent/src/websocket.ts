@@ -1,3 +1,7 @@
+// Experimental scaffold. Only `auth` and `workspace.list` are wired up; every other
+// client event currently returns "not implemented yet". The Android app does not use
+// this WebSocket — it talks to the agent over HTTP + SSE through /opencode/*.
+// Keep this code OR rewrite it; do not assume it reflects the current working protocol.
 import { WebSocketServer, type WebSocket } from "ws"
 import type { Server } from "node:http"
 import { ClientEvent, type ServerEventType, type WorkspaceSummaryType } from "./protocol.js"

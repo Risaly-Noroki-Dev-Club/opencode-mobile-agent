@@ -6,14 +6,14 @@ This project targets users who already run OpenCode on a remote server and want 
 
 ## Status
 
-Early scaffold. The repository currently contains the architecture, protocol draft, and a minimal TypeScript agent skeleton.
+MVP-complete gateway. HTTP + SSE is the working transport: the Android app talks to the agent through `/opencode/*` proxying and through agent-native endpoints like `/projects`, `/sessions`, and `/health`. The WebSocket endpoint at `/ws` is experimental scaffolding that only implements `auth` and `workspace.list`; it is kept for protocol experimentation but is not used by the current Android client and may change or be removed.
 
 ## Architecture
 
 ```text
 Android app
   |
-  | HTTPS / WebSocket with token auth
+  | HTTPS with token auth
   v
 opencode-mobile-agent
   |
@@ -60,6 +60,29 @@ The Android app lives in the separate `opencode-mobile-app` repository.
 
 ## Development Notes
 
+Install dependencies from the repository root:
+
+```bash
+npm install
+```
+
+Common checks:
+
+```bash
+npm run build
+npm run typecheck
+npm --workspace packages/agent run test
+```
+
+Run the agent locally:
+
+```bash
+npm --workspace packages/agent run dev -- init
+npm --workspace packages/agent run dev -- start
+```
+
+The default config path is `~/.config/opencode-mobile-agent/agent.json`.
+
 The upstream OpenCode repository inspected for this scaffold is:
 
 ```text
@@ -90,10 +113,28 @@ Relevant upstream capabilities:
 - Agent should listen on `127.0.0.1` by default.
 - Public access should go through a user-managed HTTPS reverse proxy.
 - Token auth is required.
-- Workspaces must be explicitly allowlisted.
+- Workspace prefixes must be explicitly allowlisted. Each entry in `workspaces` is a path prefix: a project is exposed if its `worktree` equals the prefix or is a descendant of it. `/` matches everything and should only be used in trusted local-only setups.
 - The raw OpenCode server should remain bound to localhost.
 - The agent can expose OpenCode through an authenticated forwarding prefix, so only one public port is needed.
 
 Default agent port is `2250`, matching deployments where only ports `2250-2300` are externally reachable. Keep `opencode serve` on localhost, usually `127.0.0.1:4096`, and expose the agent through one allowed port.
 
-The Android app should connect to the agent WebSocket at `/ws` and can access forwarded OpenCode APIs through `/opencode/*` with the same Bearer token.
+The Android app accesses forwarded OpenCode APIs through `/opencode/*` and reads agent-native data from `/projects`, `/sessions`, and `/health`, all with the same Bearer token.
+
+## Project Source
+
+`projectSource` in `agent.json` controls how `/projects` builds its list:
+
+- `intersect` (default): pull the live project list from OpenCode and only return projects whose `worktree` falls under one of the configured `workspaces` prefixes. Recommended for normal use — new projects under an allowed prefix appear automatically without editing config, while paths outside the allowlist stay invisible.
+- `opencode`: pass through every project OpenCode knows about, with no allowlist filtering. Intended for trusted local-only setups.
+- `config`: ignore OpenCode entirely and synthesize one project per `workspaces` entry. Matches the legacy behavior of the previous `/workspaces` endpoint.
+
+## Current Agent Capabilities
+
+- `GET /health` 返回 agent 版本、监听配置、OpenCode 健康状态、可用时的 OpenCode 版本，以及当前项目来源摘要。
+- `GET /projects` 返回 OpenCode 项目；当 `projectSource` 为 `intersect` 时，会按配置的工作区路径前缀过滤。
+- `GET /sessions` 返回 OpenCode 会话，可按 `projectId` 或 `directory` 过滤；除非 `projectSource` 为 `opencode`，否则会隐藏工作区 allowlist 之外的会话。
+- `GET /workspaces` 继续作为旧兼容接口保留，供仍期望配置型工作区条目的客户端使用。
+- `/opencode/*` 将已认证的移动端请求转发到本机 OpenCode 服务，并在转发前移除移动端 Bearer token。
+- `@opencode-ai/sdk` 用于项目和会话列表；OpenCode 健康检查仍使用 raw fetch。
+- 当前测试覆盖工作区前缀匹配、配置默认值、非法 `projectSource` 和代理路径拼接。

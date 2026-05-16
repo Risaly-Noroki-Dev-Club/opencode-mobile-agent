@@ -21,7 +21,7 @@ The gateway still matters because a phone-facing product needs a narrower and sa
 Responsibilities:
 
 - Store server URL and token locally.
-- Connect to the agent over HTTPS/WebSocket.
+- Connect to the agent over HTTPS with bearer-token authentication.
 - Show sessions, streamed assistant output, tool events, and permission requests.
 - Send user prompts and permission responses.
 - Display diffs.
@@ -31,7 +31,7 @@ Implementation direction:
 - Kotlin and Jetpack Compose.
 - Material 3 with Android 12+ dynamic color.
 - Material 3 Expressive components and motion when the dependency surface is stable enough.
-- OkHttp for HTTP/WebSocket transport.
+- OkHttp for HTTP and SSE transport.
 - Kotlin Serialization for protocol models.
 
 ### Agent
@@ -39,11 +39,11 @@ Implementation direction:
 Responsibilities:
 
 - Authenticate Android clients.
-- Start or connect to a local OpenCode server.
-- Proxy selected OpenCode APIs.
-- Subscribe to OpenCode SSE events.
-- Convert OpenCode events into a stable mobile protocol.
-- Enforce local workspace allowlists.
+- Connect to a local OpenCode server.
+- Proxy selected OpenCode APIs under `/opencode/*`.
+- Provide mobile-native discovery endpoints such as `/health`, `/projects`, and `/sessions`.
+- Let the Android app consume OpenCode SSE through the authenticated forwarding path.
+- Enforce local workspace-prefix allowlists for project and session discovery.
 
 ### OpenCode Server
 
@@ -64,9 +64,17 @@ Android app -> user's HTTPS reverse proxy -> agent -> localhost opencode serve
 
 No central relay is required for the first version.
 
+The current Android integration uses HTTP plus forwarded OpenCode SSE. The custom `/ws` endpoint remains experimental and only supports authentication plus workspace listing.
+
+## Resolved Decisions
+
+- The agent now depends on `@opencode-ai/sdk` for project and session discovery.
+- OpenCode's native HTTP/SSE API is forwarded through `/opencode/*` instead of being rewrapped wholesale.
+- Mobile discovery gets a smaller stable surface through `/health`, `/projects`, and `/sessions`.
+- Workspace allowlists are path prefixes, not a fixed list of exact project IDs.
+
 ## Open Questions
 
-- Whether to depend on `@opencode-ai/sdk` directly or use raw HTTP initially.
 - Whether the agent should always launch `opencode serve` or support connecting to an existing server first.
 - How much of OpenCode's native event schema should be exposed unchanged to the Android app.
 - Whether permission responses should pass through exactly or be wrapped in a mobile-specific abstraction.
