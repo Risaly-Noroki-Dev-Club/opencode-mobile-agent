@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { Hono } from "hono"
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
-import { readFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
+import { execSync, spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { dirname, join } from "node:path"
+import { homedir } from "node:os"
 import { initConfig, readConfig, matchesPrefix, type AgentConfig } from "./config.js"
 import { createOpenCodeClient, type OpenCodeClient } from "./opencode.js"
 import type { ProjectSummaryType, SessionSummaryType } from "./protocol.js"
@@ -102,6 +104,77 @@ app.get("/sessions", async (c) => {
   } catch (error) {
     return c.json({ error: errorMessage(error) }, 502)
   }
+})
+
+const opencodeConfigPath = join(homedir(), ".config", "opencode", "opencode.json")
+const authJsonPath = join(homedir(), ".local", "share", "opencode", "auth.json")
+
+function readOpencodeConfig(): Record<string, unknown> {
+  return JSON.parse(readFileSync(opencodeConfigPath, "utf8"))
+}
+
+function writeOpencodeConfig(data: Record<string, unknown>) {
+  writeFileSync(opencodeConfigPath, JSON.stringify(data, null, 2) + "\n")
+}
+
+function restartOpencodeServe() {
+  try { execSync("pkill -f 'opencode serve'", { timeout: 5000 }) } catch {}
+  spawn("opencode", ["serve", "--hostname", "127.0.0.1", "--port", "4096"], {
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env },
+  }).unref()
+}
+
+app.post("/providers", async (c) => {
+  const body = await c.req.json<{
+    id: string
+    baseURL: string
+    apiKey: string
+    models?: Record<string, { name: string; context?: number; output?: number }>
+  }>()
+  if (!body.id || !body.baseURL || !body.apiKey) return c.json({ error: "id, baseURL, apiKey required" }, 400)
+  const cfg = readOpencodeConfig()
+  const providers = (cfg.provider ?? {}) as Record<string, unknown>
+  const models: Record<string, unknown> = {}
+  if (body.models) {
+    for (const [mid, m] of Object.entries(body.models)) {
+      models[mid] = { name: m.name, limit: { context: m.context ?? 128000, output: m.output ?? 32000 } }
+    }
+  }
+  providers[body.id] = { options: { baseURL: body.baseURL, apiKey: body.apiKey }, models }
+  cfg.provider = providers
+  writeOpencodeConfig(cfg)
+  restartOpencodeServe()
+  return c.json({ ok: true })
+})
+
+app.post("/providers/:id/models", async (c) => {
+  const providerId = c.req.param("id")
+  const body = await c.req.json<{ modelId: string; name: string; context?: number; output?: number }>()
+  if (!body.modelId || !body.name) return c.json({ error: "modelId, name required" }, 400)
+  const cfg = readOpencodeConfig()
+  const providers = (cfg.provider ?? {}) as Record<string, Record<string, unknown>>
+  if (!providers[providerId]) return c.json({ error: `Provider '${providerId}' not found` }, 404)
+  const models = (providers[providerId].models ?? {}) as Record<string, unknown>
+  models[body.modelId] = { name: body.name, limit: { context: body.context ?? 128000, output: body.output ?? 32000 } }
+  providers[providerId].models = models
+  cfg.provider = providers
+  writeOpencodeConfig(cfg)
+  restartOpencodeServe()
+  return c.json({ ok: true })
+})
+
+app.post("/providers/:id/auth", async (c) => {
+  const providerId = c.req.param("id")
+  const body = await c.req.json<{ apiKey: string }>()
+  if (!body.apiKey) return c.json({ error: "apiKey required" }, 400)
+  let auth: Record<string, unknown> = {}
+  try { auth = JSON.parse(readFileSync(authJsonPath, "utf8")) } catch {}
+  auth[providerId] = { type: "api_key", key: body.apiKey }
+  writeFileSync(authJsonPath, JSON.stringify(auth, null, 2) + "\n", { mode: 0o600 })
+  restartOpencodeServe()
+  return c.json({ ok: true })
 })
 
 app.all(`${config.opencodeForwardPrefix}/*`, (c) => {
